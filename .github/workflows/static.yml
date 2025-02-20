@@ -1,84 +1,50 @@
 import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import nltk
-nltk.download('vader_lexicon')
+from textblob import TextBlob
 
-url = 'https://www.flipkart.com/hamtex-polycotton-double-bed-cover/product-reviews/itma5c9f08efe504?pid=BCVG2ZGSDZ3WSGTF&lid=LSTBCVG2ZGSDZ3WSGTFDBZ9IO&marketplace=FLIPKART'
+# Replace with your GitHub personal access token for higher rate limits (optional)
+GITHUB_TOKEN = "your_github_token_here"
+HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
-response = requests.get(url)
-content = response.content
-
-soup = BeautifulSoup(content, 'html.parser')
-
-reviews_container = soup.find('div', {'class': '_1YokD2 _3Mn1Gg col-9-12'})
-
-review_divs = reviews_container.find_all('div', {'class': 't-ZTKy'})
-
-reviews = []
-for child in review_divs:
-    third_div = child.div.div
-    text = third_div.text.strip()
-    reviews.append(text)
-
-# Save the reviews to an Excel file in current directory
-data = pd.DataFrame({'review': reviews})
-data.to_excel('reviews.xlsx', index=False)
-
-def sentiment_Vader(text):
-    over_all_polarity = sid.polarity_scores(text)
-    if over_all_polarity['compound'] >= 0.05:
-        return "positive"
-    elif over_all_polarity['compound'] <= -0.05:
-        return "negative"
+def get_issues_comments(repo_owner, repo_name):
+    """Fetch issue comments from the specified GitHub repository."""
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/comments"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code == 200:
+        return [comment['body'] for comment in response.json()]
     else:
-        return "neutral"
+        print(f"Failed to fetch issue comments: {response.status_code}")
+        return []
 
-# Apply sentiment analysis using VADER
-sid = SentimentIntensityAnalyzer()
-data['polarity'] = data['review'].apply(lambda review: sentiment_Vader(review))
+def get_commit_messages(repo_owner, repo_name):
+    """Fetch commit messages from the specified GitHub repository."""
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code == 200:
+        return [commit['commit']['message'] for commit in response.json()]
+    else:
+        print(f"Failed to fetch commit messages: {response.status_code}")
+        return []
 
-result_data = data.to_excel('G:/DS Programs/WebScrapingEnv/sentiment_result.xlsx')# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+def analyze_sentiment(texts):
+    """Analyze sentiment of a list of texts and return the average polarity."""
+    sentiments = [TextBlob(text).sentiment.polarity for text in texts if text]
+    return sum(sentiments) / len(sentiments) if sentiments else 0
 
-on:
-  # Runs on pushes targeting the default branch
-  push:
-    branches: ["main"]
+def main():
+    repo_owner = input("Enter the repository owner: ")
+    repo_name = input("Enter the repository name: ")
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+    issue_comments = get_issues_comments(repo_owner, repo_name)
+    commit_messages = get_commit_messages(repo_owner, repo_name)
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    issue_sentiment = analyze_sentiment(issue_comments)
+    commit_sentiment = analyze_sentiment(commit_messages)
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+    print(f"Average Issue Comments Sentiment: {issue_sentiment:.2f}")
+    print(f"Average Commit Messages Sentiment: {commit_sentiment:.2f}")
 
-jobs:
-  # Single deploy job since we're just deploying
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Upload entire repository
-          path: '.'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    overall_sentiment = (issue_sentiment + commit_sentiment) / 2
+    print(f"Overall Repository Sentiment: {overall_sentiment:.2f}")
+
+if __name__ == "__main__":
+    main()
